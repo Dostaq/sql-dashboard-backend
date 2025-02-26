@@ -2,8 +2,19 @@ const express = require('express');
 const cors = require('cors');
 const sql = require('mssql');
 require('dotenv').config();
+const sqlConfig = {
+  user: process.env.user,
+  password: process.env.password,
+  server: process.env.server,
+  database: process.env.database,
+  port: parseInt(process.env.db_port),
+  options: {
+    encrypt: true,
+    trustServerCertificate: true
+  }
+};
 
-let users = [{ username: 'svc_dba_refresh', password: 'Temporal01.'}];
+let users = [{ username: process.env.user , password: process.env.password}];
 
 const app = express();
 app.use(express.json());
@@ -18,23 +29,28 @@ app.get('/login', (req, res) => {
 });
 
 app.post('/login', (req, res) => {
-  console.log('Login attempt:', req.body);
   const { username, password } = req.body;
+  // Ensure credentials are provided
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: "Username and password are required" });
+  }
   const user = users.find((u) => u.username === username && u.password === password);
   if (user) {
-    res.json({ success: true, message: 'Login successful' });
+    res.json({ success: true, message: "Login successful", user: { username } });
   } else {
-    res.status(401).json({ success: false, message: 'Invalid credentials' });
+    res.status(401).json({ success: false, message: "Invalid credentials" });
   }
 });
 
 app.post('/query', async (req, res) => {
   const { query } = req.body;
   try {
-    const pool = await sql.connect(process.env.SQL_DB_CONFIG);
+    console.log("Executing Query:", query);
+    const pool = await sql.connect(sqlConfig);
     const result = await pool.request().query(query);
     res.json(result.recordset);
   } catch (error) {
+    console.log("Query Execution failed: ", error);
     res.status(500).json({ error: error.message });
   }
 });
