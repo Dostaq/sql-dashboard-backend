@@ -11,6 +11,16 @@ app.get('/', (req, res) => {
   res.send('SQL Web App Backend is Running!');
 });
 
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+  const user = users.find((u) => u.username === username && u.password === password);
+  if (user) {
+    res.json({ success: true, message: 'Login successful' });
+  } else {
+    res.status(401).json({ success: false, message: 'Invalid credentials' });
+  }
+});
+
 app.post('/query', async (req, res) => {
   const { query } = req.body;
   try {
