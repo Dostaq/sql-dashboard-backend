@@ -58,7 +58,7 @@ app.post('/query', async (req, res) => {
 app.post('/backup', async (req, res) => {
   try {
     const pool = await sql.connect(process.env.SQL_DB_CONFIG);
-    await pool.request().query(`BACKUP DATABASE [YourDatabase] TO DISK = 'C:\\Backup\\YourDatabase.bak'`);
+    await pool.request().query(`BACKUP DATABASE [Powershell] TO DISK = 'M:\\DND_VEGADBS_BACKUP_FILES\\ps.bak'`);
     res.json({ message: 'Backup completed successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -68,7 +68,7 @@ app.post('/backup', async (req, res) => {
 app.post('/checkdb', async (req, res) => {
   try {
     const pool = await sql.connect(process.env.SQL_DB_CONFIG);
-    const result = await pool.request().query(`DBCC CHECKDB ([YourDatabase])`);
+    const result = await pool.request().query(`DBCC CHECKDB [Powershell]`);
     res.json(result.recordset);
   } catch (error) {
     res.status(500).json({ error: error.message });
