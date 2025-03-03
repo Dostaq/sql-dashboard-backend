@@ -194,6 +194,16 @@ app.post('/checkdb', async (req, res) => {
   }
 });
 
+app.get('/powershell', async (req, res) => {
+  try {
+      await sql.connect(sqlConfig);
+      res.send("Database connection successful");
+  } catch (error) {
+      res.status(500).send("Database connection failed: " + error.message);
+  }
+});
+
+
 app.listen(5014, () => console.log('Server running on port 5014'));
 
 // const express = require('express');
