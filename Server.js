@@ -1,7 +1,10 @@
-const express = require('express');
-const cors = require('cors');
-const sql = require('mssql');
-require('dotenv').config();
+import path from 'path';
+import fs from 'fs';
+import express from 'express';
+import cors from 'cors';
+import sql from 'mssql';
+import dotenv from 'dotenv';
+dotenv.config();
 const sqlConfig = {
   user: process.env.user,
   password: process.env.password,
@@ -28,6 +31,10 @@ app.get('/login', (req, res) => {
   res.send('Login endpoint is working, but use POST to Authenticate.');
 });
 
+app.get('/backup', (req, res) => {
+  res.send('backup endpoint is working, but use POST to Authenticate.');
+});
+
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
   // Ensure credentials are provided
@@ -42,28 +49,140 @@ app.post('/login', (req, res) => {
   }
 });
 
+// **Fetch Database List with Metadata**
+app.get('/databases', async (req, res) => {
+  try {
+    const pool = await sql.connect(sqlConfig);
+    const result = await pool.request().query(`
+      SELECT 
+        d.name,
+        CAST(SUM(mf.size) * 8 / 1024 AS INT) AS size_MB, -- Convert pages to MB
+        d.create_date,
+        (SELECT MAX(backup_finish_date) 
+         FROM msdb.dbo.backupset 
+         WHERE database_name = d.name) AS last_backup
+      FROM sys.databases d
+      LEFT JOIN sys.master_files mf ON d.database_id = mf.database_id
+      GROUP BY d.name, d.create_date
+    `);
+    
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('Database fetch error:', error);
+    res.status(500).json({ message: 'Failed to fetch databases', error: error.message });
+  }
+});
+
+
+// app.get('/databases', async (req, res) => {
+//   try {
+//     const pool = await sql.connect(sqlConfig);
+//     const result = await pool.request().query(`
+//       SELECT 
+//         name, 
+//         size * 8 / 1024 AS size,
+//         create_date,
+//         (SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset WHERE database_name = name) AS last_backup
+//       FROM sys.databases
+//       WHERE database_id > 4
+//     `);
+//     res.json(result.recordset);
+//   } catch (error) {
+//     res.status(500).json({ message: 'Failed to fetch databases', error: error.message });
+//   }
+// });
+
+// **Run SQL Queries**
 app.post('/query', async (req, res) => {
   const { query } = req.body;
   try {
-    console.log("Executing Query:", query);
     const pool = await sql.connect(sqlConfig);
     const result = await pool.request().query(query);
     res.json(result.recordset);
   } catch (error) {
-    console.log("Query Execution failed: ", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ message: 'Query execution failed', error: error.message });
   }
 });
 
+// **Initiate Database Backup**
+//import fs from 'fs';
+//import path from 'path';
+
 app.post('/backup', async (req, res) => {
+  const { database } = req.body;
+
+  if (!database) {
+    return res.status(400).json({ message: 'Database name is required' });
+  }
+
   try {
-    const pool = await sql.connect(process.env.SQL_DB_CONFIG);
-    await pool.request().query(`BACKUP DATABASE [Powershell] TO DISK = 'M:\\DND_VEGADBS_BACKUP_FILES\\ps.bak'`);
-    res.json({ message: 'Backup completed successfully' });
+    const pool = await sql.connect(sqlConfig);
+    
+    // Define the backup folder and file path
+    const backupFolder = path.join('M:\\DND_VEGADBS_BACKUP_FILES', database);
+    const backupFilePath = path.join(backupFolder, `${database}_${Date.now()}.bak`);
+
+    // Check if the database folder exists, create if not
+    if (!fs.existsSync(backupFolder)) {
+      fs.mkdirSync(backupFolder, { recursive: true });
+    }
+
+    // SQL Backup Query
+    const query = `
+      BACKUP DATABASE [${database}] 
+      TO DISK = '${backupFilePath}' 
+      WITH FORMAT, INIT, NAME = '${database}-Full Database Backup'
+    `;
+
+    await pool.request().query(query);
+    res.json({ message: `Backup started for ${database}`, path: backupFilePath });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Backup error:', error);
+    res.status(500).json({ message: 'Backup request failed', error: error.message });
   }
 });
+
+// app.post('/backup', async (req, res) => {
+//   const { database } = req.body;
+
+//   if (!database) return res.status(400).json({ message: 'Database name is required' });
+
+//   try {
+//     const pool = await sql.connect(sqlConfig);
+//     const backupQuery = `
+//       BACKUP DATABASE [${database}] 
+//       TO DISK = 'M:\\DND_VEGADBS_BACKUP_FILES\\${database}_backup.bak' 
+//       WITH FORMAT, MEDIANAME = 'SQLServerBackups', NAME = '${database}-Full Backup';
+//     `;
+//     await pool.request().query(backupQuery);
+//     res.json({ message: `Backup started for ${database}` });
+//   } catch (error) {
+//     res.status(500).json({ message: 'Backup failed', error: error.message });
+//   }
+// });
+
+// app.post('/query', async (req, res) => {
+//   const { query } = req.body;
+//   try {
+//     console.log("Executing Query:", query);
+//     const pool = await sql.connect(sqlConfig);
+//     const result = await pool.request().query(query);
+//     res.json(result.recordset);
+//   } catch (error) {
+//     console.log("Query Execution failed: ", error);
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+// app.post('/backup', async (req, res) => {
+//   try {
+//     const pool = await sql.connect(process.env.SQL_DB_CONFIG);
+//     await pool.request().query(`BACKUP DATABASE [Powershell] TO DISK = 'M:\\DND_VEGADBS_BACKUP_FILES\\ps.bak'`);
+//     res.json({ message: 'Backup completed successfully' });
+//   } catch (error) {
+//     res.status(500).json({ error: error.message });
+//   }
+// });
 
 app.post('/checkdb', async (req, res) => {
   try {
@@ -76,3 +195,89 @@ app.post('/checkdb', async (req, res) => {
 });
 
 app.listen(5014, () => console.log('Server running on port 5014'));
+
+// const express = require('express');
+// const sql = require('mssql');
+// const cors = require('cors');
+// require('dotenv').config();
+
+// const app = express();
+// app.use(express.json());
+// app.use(cors());
+
+// const sqlConfig = {
+//     user: process.env.user,
+//     password: process.env.password,
+//     server: process.env.server,
+//     database: process.env.database,
+//     port: parseInt(process.env.db_port),
+//     options: {
+//       encrypt: true,
+//       trustServerCertificate: true
+//     }
+//   };
+
+// // **Login Endpoint**
+// app.post('/login', async (req, res) => {
+//   const { username, password } = req.body;
+
+//   try {
+//     const pool = await sql.connect({ ...dbConfig, user: username, password });
+//     res.json({ message: 'Login successful' });
+//   } catch (error) {
+//     res.status(401).json({ message: 'Invalid credentials', error: error.message });
+//   }
+// });
+
+// // **Fetch Database List with Metadata**
+// app.get('/databases', async (req, res) => {
+//   try {
+//     const pool = await sql.connect(dbConfig);
+//     const result = await pool.request().query(`
+//       SELECT 
+//         name, 
+//         size * 8 / 1024 AS size,
+//         create_date,
+//         (SELECT MAX(backup_finish_date) FROM msdb.dbo.backupset WHERE database_name = name) AS last_backup
+//       FROM sys.databases
+//       WHERE database_id > 4
+//     `);
+//     res.json(result.recordset);
+//   } catch (error) {
+//     res.status(500).json({ message: 'Failed to fetch databases', error: error.message });
+//   }
+// });
+
+// // **Run SQL Queries**
+// app.post('/query', async (req, res) => {
+//   const { query } = req.body;
+//   try {
+//     const pool = await sql.connect(dbConfig);
+//     const result = await pool.request().query(query);
+//     res.json(result.recordset);
+//   } catch (error) {
+//     res.status(500).json({ message: 'Query execution failed', error: error.message });
+//   }
+// });
+
+// // **Initiate Database Backup**
+// app.post('/backup', async (req, res) => {
+//   const { database } = req.body;
+
+//   if (!database) return res.status(400).json({ message: 'Database name is required' });
+
+//   try {
+//     const pool = await sql.connect(dbConfig);
+//     const backupQuery = `
+//       BACKUP DATABASE [${database}] 
+//       TO DISK = 'M:\\DND_VEGADBS_BACKUP_FILES\\${database}_backup.bak' 
+//       WITH FORMAT, MEDIANAME = 'SQLServerBackups', NAME = '${database}-Full Backup';
+//     `;
+//     await pool.request().query(backupQuery);
+//     res.json({ message: `Backup started for ${database}` });
+//   } catch (error) {
+//     res.status(500).json({ message: 'Backup failed', error: error.message });
+//   }
+// });
+
+//app.listen(5014, () => console.log('Server running on port 5014'));
